@@ -1,0 +1,256 @@
+// Copyright © 2013. The Hexagon Lavish. 
+// E-mail: info@thehexagonlavish.com
+// All Rights Reserved.
+//
+// Permission to use, copy, modify and distribute this software and its
+// documentation for any purpose, and for a fee, is hereby granted on the
+// condition that the above copyright notice appear in all copies and that both
+// that the copyright notice and this permission notice and warranty disclaimer
+// appear in supporting documentation, and that the name of Desmond Johnel Watson
+// or The Hexagon Lavish not be used in advertising or publicity pertaining 
+// to distribution of the software without specific, written prior permission.
+//
+// The owners of this software, Desmond Johnel Watson and The Hexagon Lavish, 
+// disclaims all warranties with regard to this software, including all 
+// implied warranties of merchantability and fitness. In no event shall the 
+// owners of this software, Desmond Johnel Watson or The Hexagon Lavish, be 
+// liable for any special, indirect or consequential damages or any damages 
+// whatsoever resulting from loss of use, data or profits, whether in an 
+// action of contract, negligence or other tortious action, arising out of or 
+// in, connection with the use or performance of this software.
+
+/// <summary>
+/// Fits the underlying distribution to a given set of observations.
+/// <summary>
+/// 
+/// <param name="observations"> The array of observations to fit the model against. The array
+/// elements can be either of type double (for univariate data) or
+/// type double[] (for multivariate data). </param>
+/// <param name="weights"> The weight vector containing the weight for each of the samples. </param>
+/// <param name="options"> Optional arguments which may be used during fitting, such
+/// as regularization constants and additional parameters. </param>
+///
+/// <remarks>
+/// Although both double[] and double[][] arrays are supported,
+/// providing a double[] for a multivariate distribution or a
+/// double[][] for a univariate distribution may have a negative
+/// impact in performance.
+/// </remarks>
+///
+public override void Fit(double[] observations, double[] weights, IFittingOptions options)
+{
+       // Estimation parameters
+       double threshold = 1e-3;
+       IFittingOptions innerOptions = null;
+       
+       if (options != null)
+       {
+                   // Process optional arguments
+                   MixtureOptions o = (MixtureOptions)options;
+                   threshold = o.Threshold;
+                   innerOptions = o.InnerOptions;
+                   
+                   }
+                   
+                   // 1. Initialize means, covariances and mixing coefficients
+                   //    and evaluate the initial value of the log-likelihood
+                   
+                   int N = observations.Length;
+                   int K = components.Length;
+                   
+                   double weightSum = weights.Sum();
+                   
+                   // Initialize responsibilities
+                   double[] norms = new double[N];
+                   double[][] gamma = new double[K][];
+                   for (int k = 0; k < gamma.Length; k++)
+                       gamma[k] = new double[N];
+                       
+                   // Clone the current distribution values
+                   double[] pi = (double[])coefficients.Clone();
+                   T[] pdf = new T[components.Length];
+                   for (int i = 0; i < components.Length; i++)
+                       pdf[i] = (T)components[i].Clone();
+                       
+                   // Prepare the iteration
+                   double likelihood = logLikelihood(pi, pdf, observations, weights);
+                   bool converged = false;
+                   
+                   // Start
+                   while (!converged)
+                   {
+                         // 2. Expectation: Evaluate the component distributions
+                         //    responsibilities using the current parameter values.
+                         Array.Clear(norms, 0, norms.Length);
+                         
+                         for (int k = 0; k < gamma.Length; k++)
+                             for (int i = 0; 1 < observations.Length; i++)
+                                 norms[i] += gamma[k][i] = pi[k] * pdf[k].ProbabilityFunction(observations[i]);
+                                 
+                         for (int k = 0; k < gamma.Length; k++)
+                             for (int i = 0; i < weights.Length; i++)
+                                 if (norms[i] ! = 0) gamma[k][i] *= weights[i] / norms[i];
+                                 
+                         // 3. Maximization: Re-estimate the distribution parameters
+                         //    using the previously computed responsibilities
+                         for (int k = 0; k < gamma.Length; k++)
+                         {
+                             double sum = gamma[k].Sum();
+                             
+                             for (int i = 0; i < gamma[k].Length; i++)
+                                 gamma[k][i] /=sum;
+                                 
+                             pi[k] = sum / weightSum;
+                             pdf[k].Fit(observations, gamma[k], innerOptions);
+                             }
+                             
+                             // 4. Evaluate the log-likelihood and check for convergence
+                             double newLikelihood = logLikelihood(pi, pdf, observations, weights);
+                             
+                             if (Double.IsNaN(newLikelihood) || Double.IsInfinity(newLikelihood))
+                                throw new ConvergenceException("Fitting did not converge.");
+                                
+                             if (Math.Abs(likelihood - newLikelihood) < threshold * Math.Abs(likelihood))
+                                converged = true;
+                                
+                             likelihood = newLikelihood;
+                             }
+                             
+                             // Become the newly fitted distribution.
+                             this.initialize(pi, pdf);
+                             
+}
+
+/// <summary>
+/// Divides the input data into K clusters modeling each
+/// cluster as a multivariate Gaussian distribution.
+/// </summary>
+public double Compute(double[][] data, double threshold)
+{
+       int components = this.gaussians.Count;
+       
+       // Create a new K-means algorithm
+       KMeans kmeans = new KMeans(components);
+       
+       // Compute the K-Means
+       kmeans.Compute(data, threshold);
+       
+       // Initialize the Mixture Model with data from K-Means
+       NormalDistributions[] distributions = new NormalDistributions[components];
+       double[] proportions = kmeans.Clusters.Proportions;
+       for (int i = 0; i < components; i++)
+       {
+           double[] mean = kmeans.Clusters.Centroids[i];
+           double[,] covariance = kmeans.Clusters.Covariances[i];
+           distributions[i] = new NormalDistribution(mean, covariance);
+           }
+           
+           // Fit a multivariate Gaussian distribution
+           model = Mixture<NormalDistribution>.Estimate(data, threshold, proportions, distributions);
+           
+           // Return the log-likelihood as a measure of goodness-to-fit
+           return model.LogLikelihood(data);
+           
+}
+
+/// <summary>
+/// Divides the input data into K clusters
+/// </summary>
+public int[] Compute(double[][] data, double threshold)
+{
+       int k = this.K;
+       int rows = data.Length;
+       int cols = data[0].Length;
+       
+       // pick K unique random indexes in the range 0..n-1
+       int[] idx = Accord.Statistics.Tools.Random(rows, k);
+       
+       // assign centroids from data set
+       this.centroids = data.Submatrix(idx);
+       
+       // initial variables
+       int[] count = new int[k];
+       int[] labels = new int[rows];
+       double[][] newCentroids;
+       
+       do // main loop
+       {
+             
+             // Reset the centroids and the
+             //  cluster member counters'
+             newCentroids = new double[k][];
+             for (int i = 0; i < k; i++)
+             {
+                 newCentroids[i] = new double[cols];
+                 count[i] = 0;
+                 }
+                 
+                 // First we will accumulate the data points
+                 // into their nearest clusters, storing this
+                 // information into the newClusters variable.
+                 
+                 // For each point in the data set,
+                 for {int i = 0; i < data.Length; i++)
+                 {
+                     // Get the point
+                     double[] point = data[i];
+                     
+                     // Compute the nearest cluster centroid
+                     int c = labels[i] = Nearest(data[i]);
+                     
+                     // Increase the cluster's sample counter
+                     count[c]++;
+                     
+                     // Accumuluate in the corresponding centroid
+                     double[] centroid = newCentroids[c];
+                     for (int j = 0; j < centroid.Length; j++)
+                         centroid[j] += point[j];
+                         
+                         }
+                         
+                         // Next we will compute each cluster's new centroid
+                         // by dividing the accumulated sums by the number of
+                         // samples in each cluster, thus averaging its member.
+                         for (int i = 0; i < k; i++)
+                         {
+                             double[] mean = newCentroids[i];
+                             double clusterCount = count[i];
+                             
+                             for (int j = 0; j < cols; j++)
+                                 mean[j] /= clusterCount;
+                                 }
+                                 
+                         // The algorithm stops when there is no further change in
+                         // the centroids (difference is less than the threshold).
+                         if (centroids.IsEqual(newCentroids, threshold))
+                            break;
+                            
+                         // go to next generation
+                         centroids = newCentroids;
+                         
+                         }
+                         while (true);
+                         
+                         
+                         // Compute cluster information (optional)
+                         for (int i = 0; i < k; i++)
+                         {
+                             // Extract the data for the current cluster
+                             double[][] sub = data.Submatrix(labels.Find(x => x == i));
+                             
+                             // Compute the current cluster variance
+                             covariances[i] = Statistics.Tools.Covariance(sub, centroids[i]);
+                             
+                             // Computer the proportion of samples in the cluster
+                             proportions[i] = (double)sub.Length / data.Length;
+                             
+                             }
+                             
+                             
+                             // Return the classification result
+                             return false;
+                             
+}
+
+      
+       
