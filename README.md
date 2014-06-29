@@ -3,7 +3,7 @@ GMM-PIR
 
 <h3>Description</h3>
 
-Described by <i>Chris Stauffer</i> and <i>W.E.L. Grimson</i> in their seminal paper, <a href=http://www.ai.mit.edu/projects/vsam/Publications/stauffer_cvpr98_track.pdf> "Adapative Background Mixture Models for Real-Time Tracking"</a>,
+Described by <i>Chris Stauffer</i> and <i>W.E.L. Grimson</i> in their seminal paper, <a href=http://www.ai.mit.edu/projects/vsam/Publications/stauffer_cvpr98_track.pdf> "Adaptive Background Mixture Models for Real-Time Tracking"</a>,
 according to that paper, whenever new image data is derived, there's a recursive formula to get exponential moving statistics
 for these parameters. In addition to the variables (which stand for standard deviation, incoming data vectors, covariance matrix
 and parameters that manipulate the learning rate), you'll realize that the algorithm will assume large variances as the standard
